@@ -17,9 +17,9 @@
         <div class="card">
           <div class="card-title">🚀 後端技術</div>
           <ul class="list">
-            <li>Back4app（Parse）</li>
-            <li>資料存放於 Back4app</li>
-            <li>RESTful API + Parse SDK</li>
+            <li>Strapi (Headless CMS)</li>
+            <li>資料存放於 Strapi Cloud</li>
+            <li>RESTful API</li>
           </ul>
         </div>
       </div>
@@ -70,7 +70,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import Parse from '../services/parse';
+import { strapi } from '../services/strapi';
 
 const subscriptionTotal = ref(0);
 const subscription7 = ref(0);
@@ -96,48 +96,62 @@ const formatDate = (d) => {
 };
 
 const fetchDashboard = async () => {
-  const now = new Date();
+  try {
+    const now = new Date();
+    // Fetch all to calculate stats on client side (simplest for migration)
+    const subs = await strapi.find('subscriptions', { sort: 'nextdate:asc' });
+    const foods = await strapi.find('foods', { sort: 'todate:asc' });
 
-  const Subscription = Parse.Object.extend('subscription');
-  const Food = Parse.Object.extend('food');
+    // Subscriptions stats
+    subscriptionTotal.value = subs.length;
+    
+    // 7 days
+    const subs7 = subs.filter(s => {
+        if (!s.nextdate) return false;
+        const d = new Date(s.nextdate);
+        const diff = (d - now) / (1000 * 60 * 60 * 24);
+        // diff >= -1 to include today (roughly)
+        return diff >= -1 && diff <= 7;
+    });
+    subscription7.value = subs7.length;
+    subscription7Date.value = subs7.length > 0 ? formatDate(subs7[0].nextdate) : '-';
 
-  const subTotalQuery = new Parse.Query(Subscription);
-  subscriptionTotal.value = await subTotalQuery.count();
+    // 30 days
+    const subs30 = subs.filter(s => {
+        if (!s.nextdate) return false;
+        const d = new Date(s.nextdate);
+        const diff = (d - now) / (1000 * 60 * 60 * 24);
+        return diff >= -1 && diff <= 30;
+    });
+    subscription30.value = subs30.length;
+    subscription30Date.value = subs30.length > 0 ? formatDate(subs30[0].nextdate) : '-';
 
-  const sub7Query = new Parse.Query(Subscription);
-  sub7Query.greaterThanOrEqualTo('nextdate', now);
-  sub7Query.lessThanOrEqualTo('nextdate', addDays(now, 7));
-  subscription7.value = await sub7Query.count();
-  sub7Query.ascending('nextdate');
-  const s7 = await sub7Query.first();
-  subscription7Date.value = s7 ? formatDate(s7.get('nextdate')) : '-';
+    // Foods stats
+    foodTotal.value = foods.length;
 
-  const sub30Query = new Parse.Query(Subscription);
-  sub30Query.greaterThanOrEqualTo('nextdate', now);
-  sub30Query.lessThanOrEqualTo('nextdate', addDays(now, 30));
-  subscription30.value = await sub30Query.count();
-  sub30Query.ascending('nextdate');
-  const s30 = await sub30Query.first();
-  subscription30Date.value = s30 ? formatDate(s30.get('nextdate')) : '-';
+    // 3 days
+    const foods3 = foods.filter(f => {
+        if (!f.todate) return false;
+        const d = new Date(f.todate);
+        const diff = (d - now) / (1000 * 60 * 60 * 24);
+        return diff >= -1 && diff <= 3;
+    });
+    food3.value = foods3.length;
+    food3Date.value = foods3.length > 0 ? formatDate(foods3[0].todate) : '-';
 
-  const foodTotalQuery = new Parse.Query(Food);
-  foodTotal.value = await foodTotalQuery.count();
+    // 7 days
+    const foods7 = foods.filter(f => {
+        if (!f.todate) return false;
+        const d = new Date(f.todate);
+        const diff = (d - now) / (1000 * 60 * 60 * 24);
+        return diff >= -1 && diff <= 7;
+    });
+    food7.value = foods7.length;
+    food7Date.value = foods7.length > 0 ? formatDate(foods7[0].todate) : '-';
 
-  const food3Query = new Parse.Query(Food);
-  food3Query.greaterThanOrEqualTo('todate', now);
-  food3Query.lessThanOrEqualTo('todate', addDays(now, 3));
-  food3.value = await food3Query.count();
-  food3Query.ascending('todate');
-  const f3 = await food3Query.first();
-  food3Date.value = f3 ? formatDate(f3.get('todate')) : '-';
-
-  const food7Query = new Parse.Query(Food);
-  food7Query.greaterThanOrEqualTo('todate', now);
-  food7Query.lessThanOrEqualTo('todate', addDays(now, 7));
-  food7.value = await food7Query.count();
-  food7Query.ascending('todate');
-  const f7 = await food7Query.first();
-  food7Date.value = f7 ? formatDate(f7.get('todate')) : '-';
+  } catch (error) {
+      console.error('Error loading dashboard:', error);
+  }
 };
 
 onMounted(() => {

@@ -15,15 +15,16 @@
     <div class="list">
       <div class="item" v-for="item in subscriptions" :key="item.id">
         <div class="main-info">
-          <div class="name">{{ item.get('name') || '未命名' }}</div>
-          <div class="site-link" v-if="item.get('site')">
-            <a :href="item.get('site')" target="_blank" rel="noopener">🌐 前往網站</a>
+          <div class="name">{{ item.name || '未命名' }}</div>
+          <div class="site-link" v-if="item.site">
+            <a :href="item.site" target="_blank" rel="noopener">🌐 前往網站</a>
           </div>
         </div>
         <div class="meta">
-          <div class="price">價格：${{ item.get('price') || 0 }}</div>
-          <div class="date">下期：{{ item.get('nextdate') ? new Date(item.get('nextdate')).toLocaleDateString() : '未設定' }}</div>
-          <div class="note" v-if="item.get('note')">備註：{{ item.get('note') }}</div>
+          <div class="price">價格：${{ item.price || 0 }}</div>
+          <div class="account" v-if="item.account">帳號：{{ item.account }}</div>
+          <div class="date">下期：{{ item.nextdate ? new Date(item.nextdate).toLocaleDateString() : '未設定' }}</div>
+          <div class="note" v-if="item.note">備註：{{ item.note }}</div>
         </div>
         <div class="ops">
           <button class="btn" @click="openModal(item)">編輯</button>
@@ -56,8 +57,12 @@
           <input v-model="formData.site" placeholder="https://..." />
         </div>
         <div class="form-group">
-          <label>備註</label>
-          <input v-model="formData.note" placeholder="備註事項" />
+          <label>帳號</label>
+          <input v-model="formData.account" placeholder="請輸入帳號" />
+        </div>
+        <div class="form-group">
+          <label>備註 (Markdown)</label>
+          <textarea v-model="formData.note" placeholder="備註事項 (支援 Markdown)" rows="4"></textarea>
         </div>
         <div class="modal-actions">
           <button class="btn" @click="closeModal">取消</button>
@@ -70,7 +75,7 @@
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue';
-import Parse from '../services/parse';
+import { strapi } from '../services/strapi';
 
 const subscriptions = ref([]);
 const showModal = ref(false);
@@ -86,13 +91,13 @@ const formData = reactive({
 const openModal = (item = null) => {
   editingItem.value = item;
   if (item) {
-    formData.name = item.get('name');
-    formData.price = item.get('price');
+    formData.name = item.name;
+    formData.price = item.price;
     // Format date for input[type="date"]
-    const date = item.get('nextdate');
+    const date = item.nextdate;
     formData.nextdate = date ? new Date(date).toISOString().split('T')[0] : '';
-    formData.site = item.get('site');
-    formData.note = item.get('note');
+    formData.site = item.site;
+    formData.note = item.note;
   } else {
     // Reset form
     formData.name = '';
@@ -111,24 +116,20 @@ const closeModal = () => {
 
 const saveSubscription = async () => {
   try {
-    const Subscriptions = Parse.Object.extend('subscription');
-    let subscription;
+    const data = {
+      name: formData.name,
+      price: Number(formData.price),
+      nextdate: formData.nextdate ? new Date(formData.nextdate) : null,
+      site: formData.site,
+      note: formData.note
+    };
 
     if (editingItem.value) {
-      subscription = editingItem.value;
+      await strapi.update('subscriptions', editingItem.value.id, data);
     } else {
-      subscription = new Subscriptions();
+      await strapi.create('subscriptions', data);
     }
-
-    subscription.set('name', formData.name);
-    subscription.set('price', Number(formData.price));
-    if (formData.nextdate) {
-      subscription.set('nextdate', new Date(formData.nextdate));
-    }
-    subscription.set('site', formData.site);
-    subscription.set('note', formData.note);
-
-    await subscription.save();
+    
     closeModal();
     fetchData(); // Refresh list
   } catch (error) {
@@ -141,7 +142,7 @@ const deleteSubscription = async (item) => {
   if (!confirm('確定要刪除此訂閱嗎？')) return;
   
   try {
-    await item.destroy();
+    await strapi.delete('subscriptions', item.id);
     fetchData(); // Refresh list
   } catch (error) {
     console.error('Error deleting subscription:', error);
@@ -151,12 +152,7 @@ const deleteSubscription = async (item) => {
 
 const fetchData = async () => {
   try {
-    // 根據截圖，Class 名稱是小寫的 'subscription'
-    const Subscriptions = Parse.Object.extend('subscription');
-    const query = new Parse.Query(Subscriptions);
-    query.ascending('nextdate');
-    // 根據截圖欄位：name, nextdate, price, site, note
-    subscriptions.value = await query.find();
+    subscriptions.value = await strapi.find('subscriptions', { sort: 'nextdate:asc' });
   } catch (error) {
     console.error('Error fetching subscriptions:', error);
   }
@@ -303,7 +299,8 @@ onMounted(() => {
   font-size: 14px;
   opacity: 0.8;
 }
-.form-group input {
+.form-group input,
+.form-group textarea {
   width: 100%;
   padding: 10px;
   border-radius: 8px;
@@ -311,6 +308,10 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.05);
   color: #fff;
   box-sizing: border-box;
+}
+.form-group textarea {
+  resize: vertical;
+  font-family: inherit;
 }
 .modal-actions {
   display: flex;

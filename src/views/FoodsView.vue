@@ -14,18 +14,18 @@
     </div>
     <div class="cards">
       <div class="card" v-for="item in foods" :key="item.id">
-        <div class="thumb food" :style="item.get('photo') ? { backgroundImage: `url(${item.get('photo')})` } : {}"></div>
+        <div class="thumb food" :style="item.photo ? { backgroundImage: `url(${item.photo})` } : {}"></div>
         <div class="meta">
-          <div class="name">{{ item.get('name') || '未命名' }}</div>
+          <div class="name">{{ item.name || '未命名' }}</div>
           <div class="info">
-            <span v-if="item.get('shop')" class="shop-tag">🏠 {{ item.get('shop') }}</span>
+            <span v-if="item.shop" class="shop-tag">🏠 {{ item.shop }}</span>
             <div class="details">
-              <span>數量：{{ item.get('amount') || 0 }}</span>
-              <span>價格：${{ (item.get('price') || 0).toLocaleString() }}</span>
+              <span>數量：{{ item.amount || 0 }}</span>
+              <span>價格：${{ (item.price || 0).toLocaleString() }}</span>
             </div>
-            <div class="expiry" :class="{ expired: isExpired(item.get('todate')), warning: isExpiringSoon(item.get('todate')) }">
-              📅 {{ item.get('todate') ? new Date(item.get('todate')).toLocaleDateString() : '未設定' }}
-              <span v-if="item.get('todate')">({{ getDaysRemaining(item.get('todate')) }})</span>
+            <div class="expiry" :class="{ expired: isExpired(item.todate), warning: isExpiringSoon(item.todate) }">
+              📅 {{ item.todate ? new Date(item.todate).toLocaleDateString() : '未設定' }}
+              <span v-if="item.todate">({{ getDaysRemaining(item.todate) }})</span>
             </div>
           </div>
           <div class="ops">
@@ -78,7 +78,7 @@
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue';
-import Parse from '../services/parse';
+import { strapi } from '../services/strapi';
 
 const foods = ref([]);
 const showModal = ref(false);
@@ -95,12 +95,12 @@ const formData = reactive({
 const openModal = (item = null) => {
   editingItem.value = item;
   if (item) {
-    formData.name = item.get('name');
-    formData.amount = item.get('amount');
-    formData.price = item.get('price');
-    formData.shop = item.get('shop');
-    formData.todate = item.get('todate') ? item.get('todate').toISOString().substr(0, 10) : '';
-    formData.photo = item.get('photo');
+    formData.name = item.name;
+    formData.amount = item.amount;
+    formData.price = item.price;
+    formData.shop = item.shop;
+    formData.todate = item.todate ? new Date(item.todate).toISOString().substr(0, 10) : '';
+    formData.photo = item.photo;
   } else {
     Object.assign(formData, {
       name: '',
@@ -121,9 +121,9 @@ const closeModal = () => {
 
 const fetchData = async () => {
   try {
-    const query = new Parse.Query('Food');
-    query.descending('todate');
-    foods.value = await query.find();
+    // Strapi uses 'foods' collection name usually
+    // sort format: field:desc
+    foods.value = await strapi.find('foods', { sort: 'todate:desc' });
   } catch (error) {
     console.error('Error fetching foods:', error);
   }
@@ -131,24 +131,22 @@ const fetchData = async () => {
 
 const saveFood = async () => {
   try {
-    let food;
+    const data = {
+      name: formData.name,
+      amount: formData.amount,
+      price: formData.price,
+      shop: formData.shop,
+      photo: formData.photo,
+      photoHash: formData.photoHash,
+      todate: formData.todate ? new Date(formData.todate) : null
+    };
+
     if (editingItem.value) {
-      food = editingItem.value;
+      await strapi.update('foods', editingItem.value.id, data);
     } else {
-      const Food = Parse.Object.extend('Food');
-      food = new Food();
+      await strapi.create('foods', data);
     }
     
-    food.set('name', formData.name);
-    food.set('amount', formData.amount);
-    food.set('price', formData.price);
-    food.set('shop', formData.shop);
-    if (formData.todate) {
-      food.set('todate', new Date(formData.todate));
-    }
-    food.set('photo', formData.photo);
-    
-    await food.save();
     closeModal();
     fetchData();
   } catch (error) {
@@ -160,10 +158,11 @@ const saveFood = async () => {
 const deleteFood = async (item) => {
   if (!confirm('確定要刪除嗎？')) return;
   try {
-    await item.destroy();
+    await strapi.delete('foods', item.id);
     fetchData();
   } catch (error) {
     console.error('Error deleting food:', error);
+    alert('刪除失敗：' + error.message);
   }
 };
 
