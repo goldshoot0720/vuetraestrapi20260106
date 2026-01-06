@@ -4,6 +4,9 @@
       <div class="badge">🍎</div>
       <h2>食品管理系統</h2>
       <div class="actions">
+        <input type="file" ref="fileInput" accept=".csv" style="display: none" @change="handleFileUpload" />
+        <button class="btn" @click="triggerFileInput">匯入 CSV</button>
+        <button class="btn" @click="downloadCSV">匯出 CSV</button>
         <button class="btn" @click="fetchData">重新載入</button>
         <button class="btn primary" @click="openModal(null)">新增食品</button>
       </div>
@@ -88,6 +91,7 @@ const foods = ref([]);
 const showModal = ref(false);
 const editingItem = ref(null);
 const selectedFile = ref(null);
+const fileInput = ref(null);
 const formData = reactive({
   name: '',
   amount: 0,
@@ -171,6 +175,112 @@ const fetchData = async () => {
   } catch (error) {
     console.error('Error fetching foods:', error);
   }
+};
+
+const downloadCSV = () => {
+  const headers = ['ID', '名稱', '數量', '價格', '商店', '到期日', '圖片連結'];
+  const rows = foods.value.map(item => [
+    item.id,
+    `"${(item.name || '').replace(/"/g, '""')}"`,
+    item.amount,
+    item.price,
+    `"${(item.shop || '').replace(/"/g, '""')}"`,
+    item.todate ? new Date(item.todate).toLocaleDateString() : '',
+    `"${(getPhotoUrl(item) || '').replace(/"/g, '""')}"`
+  ]);
+
+  const csvContent = [
+    '\uFEFF' + headers.join(','), // Add BOM for Excel Chinese support
+    ...rows.map(row => row.join(','))
+  ].join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', 'strapifood.csv');
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+const triggerFileInput = () => {
+  fileInput.value.click();
+};
+
+const parseCSVLine = (text) => {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  return result;
+};
+
+const handleFileUpload = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const text = e.target.result;
+      const cleanText = text.replace(/^\uFEFF/, '');
+      const lines = cleanText.split('\n').map(line => line.trim()).filter(line => line);
+      
+      const dataRows = lines.slice(1);
+      
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const line of dataRows) {
+        try {
+          // Format: ID, Name, Amount, Price, Shop, ToDate, Photo
+          const cols = parseCSVLine(line);
+          if (cols.length < 2) continue;
+
+          const data = {
+            name: cols[1]?.replace(/^"|"$/g, '') || '未命名',
+            amount: Number(cols[2]) || 0,
+            price: Number(cols[3]) || 0,
+            shop: cols[4]?.replace(/^"|"$/g, '') || null,
+            todate: cols[5] ? new Date(cols[5]) : null,
+            photo: cols[6]?.replace(/^"|"$/g, '') || null
+          };
+
+          await strapi.create('foods', data);
+          successCount++;
+        } catch (err) {
+          console.error('Error importing row:', line, err);
+          failCount++;
+        }
+      }
+
+      alert(`匯入完成！成功：${successCount} 筆，失敗：${failCount} 筆`);
+      fetchData();
+    } catch (error) {
+      console.error('Error parsing CSV:', error);
+      alert('CSV 解析失敗：' + error.message);
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
 };
 
 const saveFood = async () => {

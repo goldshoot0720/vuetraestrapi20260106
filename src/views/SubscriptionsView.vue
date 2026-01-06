@@ -4,6 +4,9 @@
       <div class="badge">🧾</div>
       <h2>訂閱管理系統</h2>
       <div class="actions">
+        <input type="file" ref="fileInput" accept=".csv" style="display: none" @change="handleFileUpload" />
+        <button class="btn" @click="triggerFileInput">匯入 CSV</button>
+        <button class="btn" @click="downloadCSV">匯出 CSV</button>
         <button class="btn" @click="fetchData">重新載入</button>
         <button class="btn primary" @click="openModal(null)">新增訂閱</button>
       </div>
@@ -87,6 +90,7 @@ import { strapi } from '../services/strapi';
 const subscriptions = ref([]);
 const showModal = ref(false);
 const editingItem = ref(null);
+const fileInput = ref(null);
 const formData = reactive({
   name: '',
   price: 0,
@@ -189,6 +193,116 @@ const fetchData = async () => {
   } catch (error) {
     console.error('Error fetching subscriptions:', error);
   }
+};
+
+const downloadCSV = () => {
+  const headers = ['ID', '名稱', '價格', '網站', '帳號', '下期扣款日', '備註'];
+  const rows = subscriptions.value.map(item => [
+    item.id,
+    `"${(item.name || '').replace(/"/g, '""')}"`,
+    item.price,
+    `"${(item.site || '').replace(/"/g, '""')}"`,
+    `"${(item.account || '').replace(/"/g, '""')}"`,
+    item.nextdate ? new Date(item.nextdate).toLocaleDateString() : '',
+    `"${(item.note || '').replace(/"/g, '""')}"`
+  ]);
+
+  const csvContent = [
+    '\uFEFF' + headers.join(','), // Add BOM for Excel Chinese support
+    ...rows.map(row => row.join(','))
+  ].join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', 'strapisubscription.csv');
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+const triggerFileInput = () => {
+  fileInput.value.click();
+};
+
+const parseCSVLine = (text) => {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  return result;
+};
+
+const handleFileUpload = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const text = e.target.result;
+      // Remove BOM if present
+      const cleanText = text.replace(/^\uFEFF/, '');
+      const lines = cleanText.split('\n').map(line => line.trim()).filter(line => line);
+      
+      // Skip header
+      const dataRows = lines.slice(1);
+      
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const line of dataRows) {
+        try {
+          // Format: ID, Name, Price, Site, Account, NextDate, Note
+          // Note: ID is ignored for creation
+          const cols = parseCSVLine(line);
+          if (cols.length < 2) continue; // Basic validation
+
+          const data = {
+            name: cols[1]?.replace(/^"|"$/g, '') || '未命名',
+            price: Number(cols[2]) || 0,
+            site: cols[3]?.replace(/^"|"$/g, '') || null,
+            account: cols[4]?.replace(/^"|"$/g, '') || null,
+            nextdate: cols[5] ? new Date(cols[5]) : null,
+            note: cols[6]?.replace(/^"|"$/g, '') || null
+          };
+
+          await strapi.create('subscriptions', data);
+          successCount++;
+        } catch (err) {
+          console.error('Error importing row:', line, err);
+          failCount++;
+        }
+      }
+
+      alert(`匯入完成！成功：${successCount} 筆，失敗：${failCount} 筆`);
+      fetchData();
+    } catch (error) {
+      console.error('Error parsing CSV:', error);
+      alert('CSV 解析失敗：' + error.message);
+    }
+    // Reset input
+    event.target.value = '';
+  };
+  reader.readAsText(file);
 };
 
 onMounted(() => {
