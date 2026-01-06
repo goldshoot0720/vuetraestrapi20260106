@@ -99,8 +99,8 @@ const fetchDashboard = async () => {
   try {
     const now = new Date();
     // Fetch all to calculate stats on client side (simplest for migration)
-    const subs = await strapi.find('subscriptions', { sort: 'nextdate:asc' });
-    const foods = await strapi.find('foods', { sort: 'todate:asc' });
+    const subs = await strapi.find('subscriptions', { sort: 'nextdate:asc', 'pagination[pageSize]': 100 });
+    const foods = await strapi.find('foods', { sort: 'todate:asc', 'pagination[pageSize]': 100 });
 
     // Subscriptions stats
     subscriptionTotal.value = subs.length;

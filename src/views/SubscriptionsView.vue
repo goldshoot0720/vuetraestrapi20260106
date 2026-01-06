@@ -85,6 +85,7 @@ const formData = reactive({
   price: 0,
   nextdate: '',
   site: '',
+  account: '',
   note: ''
 });
 
@@ -97,6 +98,7 @@ const openModal = (item = null) => {
     const date = item.nextdate;
     formData.nextdate = date ? new Date(date).toISOString().split('T')[0] : '';
     formData.site = item.site;
+    formData.account = item.account;
     formData.note = item.note;
   } else {
     // Reset form
@@ -104,6 +106,7 @@ const openModal = (item = null) => {
     formData.price = 0;
     formData.nextdate = '';
     formData.site = '';
+    formData.account = '';
     formData.note = '';
   }
   showModal.value = true;
@@ -120,8 +123,9 @@ const saveSubscription = async () => {
       name: formData.name,
       price: Number(formData.price),
       nextdate: formData.nextdate ? new Date(formData.nextdate) : null,
-      site: formData.site,
-      note: formData.note
+      site: formData.site || null,
+      account: formData.account || null,
+      note: formData.note || null
     };
 
     if (editingItem.value) {
@@ -142,8 +146,9 @@ const deleteSubscription = async (item) => {
   if (!confirm('確定要刪除此訂閱嗎？')) return;
   
   try {
+    console.log('Deleting subscription:', item.id);
     await strapi.delete('subscriptions', item.id);
-    fetchData(); // Refresh list
+    await fetchData(); // Refresh list
   } catch (error) {
     console.error('Error deleting subscription:', error);
     alert('刪除失敗：' + error.message);
@@ -152,7 +157,7 @@ const deleteSubscription = async (item) => {
 
 const fetchData = async () => {
   try {
-    subscriptions.value = await strapi.find('subscriptions', { sort: 'nextdate:asc' });
+    subscriptions.value = await strapi.find('subscriptions', { sort: 'nextdate:asc', 'pagination[pageSize]': 100 });
   } catch (error) {
     console.error('Error fetching subscriptions:', error);
   }

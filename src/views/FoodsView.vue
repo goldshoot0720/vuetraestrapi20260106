@@ -14,7 +14,7 @@
     </div>
     <div class="cards">
       <div class="card" v-for="item in foods" :key="item.id">
-        <div class="thumb food" :style="item.photo ? { backgroundImage: `url(${item.photo})` } : {}"></div>
+        <div class="thumb food" :style="getPhotoUrl(item) ? { backgroundImage: `url(${getPhotoUrl(item)})` } : {}"></div>
         <div class="meta">
           <div class="name">{{ item.name || '未命名' }}</div>
           <div class="info">
@@ -64,8 +64,11 @@
           <input type="date" v-model="formData.todate" />
         </div>
         <div class="form-group">
-          <label>圖片連結</label>
-          <input v-model="formData.photo" placeholder="https://..." />
+          <label>圖片</label>
+          <div style="display: flex; gap: 8px; flex-direction: column;">
+            <input type="file" @change="handleFileChange" accept="image/*" />
+            <input v-model="formData.photo" placeholder="或輸入圖片連結 (https://...)" />
+          </div>
         </div>
         <div class="modal-actions">
           <button class="btn" @click="closeModal">取消</button>
@@ -78,11 +81,12 @@
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue';
-import { strapi } from '../services/strapi';
+import { strapi, getApiUrl } from '../services/strapi';
 
 const foods = ref([]);
 const showModal = ref(false);
 const editingItem = ref(null);
+const selectedFile = ref(null);
 const formData = reactive({
   name: '',
   amount: 0,
@@ -92,15 +96,34 @@ const formData = reactive({
   photo: ''
 });
 
+const handleFileChange = (event) => {
+  const file = event.target.files[0];
+  if (file) {
+    selectedFile.value = file;
+  }
+};
+
+const getPhotoUrl = (item) => {
+  if (!item.photo) return '';
+  if (typeof item.photo === 'string') return item.photo;
+  if (item.photo.url) {
+     if (item.photo.url.startsWith('http')) return item.photo.url;
+     return `${getApiUrl()}${item.photo.url}`;
+  }
+  return '';
+};
+
 const openModal = (item = null) => {
   editingItem.value = item;
+  selectedFile.value = null;
   if (item) {
     formData.name = item.name;
     formData.amount = item.amount;
     formData.price = item.price;
     formData.shop = item.shop;
     formData.todate = item.todate ? new Date(item.todate).toISOString().substr(0, 10) : '';
-    formData.photo = item.photo;
+    // If photo is object, we can't really edit it as string easily, but we can show it
+    formData.photo = typeof item.photo === 'string' ? item.photo : ''; 
   } else {
     Object.assign(formData, {
       name: '',
@@ -117,13 +140,14 @@ const openModal = (item = null) => {
 const closeModal = () => {
   showModal.value = false;
   editingItem.value = null;
+  selectedFile.value = null;
 };
 
 const fetchData = async () => {
   try {
     // Strapi uses 'foods' collection name usually
     // sort format: field:desc
-    foods.value = await strapi.find('foods', { sort: 'todate:desc' });
+    foods.value = await strapi.find('foods', { sort: 'todate:desc', populate: '*', 'pagination[pageSize]': 100 });
   } catch (error) {
     console.error('Error fetching foods:', error);
   }
@@ -131,15 +155,39 @@ const fetchData = async () => {
 
 const saveFood = async () => {
   try {
+    let photoValue = undefined;
+
+    if (selectedFile.value) {
+      const uploadedFile = await strapi.upload(selectedFile.value);
+      photoValue = uploadedFile.id; // Assume Media field
+    } else if (formData.photo) {
+      photoValue = formData.photo;
+    } else {
+      // Handle preservation or clearing
+      if (editingItem.value) {
+        // If original was object (Media) and form is empty (we hide object in input), preserve it.
+        if (typeof editingItem.value.photo === 'object' && editingItem.value.photo !== null) {
+           photoValue = undefined; // Don't send field, preserve existing
+        } else {
+           // If original was string/null, and form is empty, user cleared it.
+           photoValue = null;
+        }
+      } else {
+        photoValue = null;
+      }
+    }
+
     const data = {
       name: formData.name,
       amount: formData.amount,
       price: formData.price,
-      shop: formData.shop,
-      photo: formData.photo,
-      photoHash: formData.photoHash,
+      shop: formData.shop || null,
       todate: formData.todate ? new Date(formData.todate) : null
     };
+
+    if (photoValue !== undefined) {
+      data.photo = photoValue;
+    }
 
     if (editingItem.value) {
       await strapi.update('foods', editingItem.value.id, data);
@@ -158,8 +206,9 @@ const saveFood = async () => {
 const deleteFood = async (item) => {
   if (!confirm('確定要刪除嗎？')) return;
   try {
+    console.log('Deleting food:', item.id);
     await strapi.delete('foods', item.id);
-    fetchData();
+    await fetchData();
   } catch (error) {
     console.error('Error deleting food:', error);
     alert('刪除失敗：' + error.message);
