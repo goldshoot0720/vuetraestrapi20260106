@@ -65,6 +65,7 @@
         </div>
         <div class="form-group">
           <label>圖片</label>
+          <div v-if="previewImageUrl" class="image-preview" :style="{ backgroundImage: `url(${previewImageUrl})` }"></div>
           <div style="display: flex; gap: 8px; flex-direction: column;">
             <input type="file" @change="handleFileChange" accept="image/*" />
             <input v-model="formData.photo" placeholder="或輸入圖片連結 (https://...)" />
@@ -80,7 +81,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue';
+import { ref, onMounted, reactive, computed } from 'vue';
 import { strapi, getApiUrl } from '../services/strapi';
 
 const foods = ref([]);
@@ -105,13 +106,32 @@ const handleFileChange = (event) => {
 
 const getPhotoUrl = (item) => {
   if (!item.photo) return '';
-  if (typeof item.photo === 'string') return item.photo;
-  if (item.photo.url) {
-     if (item.photo.url.startsWith('http')) return item.photo.url;
-     return `${getApiUrl()}${item.photo.url}`;
+  // Check if photo is an array (sometimes Strapi returns array for media fields)
+  const photo = Array.isArray(item.photo) ? item.photo[0] : item.photo;
+  
+  if (!photo) return '';
+  if (typeof photo === 'string') return photo;
+  
+  // If flattened correctly by strapi.js, url should be direct property
+  if (photo.url) {
+     if (photo.url.startsWith('http')) return photo.url;
+     return `${getApiUrl()}${photo.url}`;
   }
   return '';
 };
+
+const previewImageUrl = computed(() => {
+  if (selectedFile.value) {
+    return URL.createObjectURL(selectedFile.value);
+  }
+  if (formData.photo && typeof formData.photo === 'string' && formData.photo.trim() !== '') {
+    return formData.photo;
+  }
+  if (editingItem.value) {
+    return getPhotoUrl(editingItem.value);
+  }
+  return '';
+});
 
 const openModal = (item = null) => {
   editingItem.value = item;
@@ -190,7 +210,8 @@ const saveFood = async () => {
     }
 
     if (editingItem.value) {
-      await strapi.update('foods', editingItem.value.id, data);
+      const idToUse = editingItem.value.documentId || editingItem.value.id;
+      await strapi.update('foods', idToUse, data);
     } else {
       await strapi.create('foods', data);
     }
@@ -207,7 +228,9 @@ const deleteFood = async (item) => {
   if (!confirm('確定要刪除嗎？')) return;
   try {
     console.log('Deleting food:', item.id);
-    await strapi.delete('foods', item.id);
+    const idToUse = item.documentId || item.id;
+    await strapi.delete('foods', idToUse);
+    alert('刪除成功！');
     await fetchData();
   } catch (error) {
     console.error('Error deleting food:', error);
@@ -419,6 +442,17 @@ onMounted(() => {
 }
 .modal-actions .btn.primary {
   background: #4facfe;
+}
+
+.image-preview {
+  width: 100%;
+  height: 200px;
+  background-size: cover;
+  background-position: center;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background-color: rgba(0,0,0,0.2);
 }
 
 @media (max-width: 900px) {

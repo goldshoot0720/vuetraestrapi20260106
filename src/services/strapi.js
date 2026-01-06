@@ -16,6 +16,7 @@ const flatten = (data) => {
   if (data.id && data.attributes) {
     const flattened = {
       id: data.id,
+      documentId: data.documentId,
       ...data.attributes
     };
     
@@ -41,7 +42,7 @@ export const strapi = {
     const url = new URL(`${getApiUrl()}/api/${collection}`);
     Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
     
-    const res = await fetch(url, { headers: getHeaders() });
+    const res = await fetch(url, { headers: getHeaders(), cache: 'no-store' });
     if (!res.ok) {
         console.error('Strapi API Error (find):', res.statusText);
         throw new Error(`Strapi Error: ${res.statusText}`);
@@ -51,7 +52,7 @@ export const strapi = {
   },
   
   async findOne(collection, id) {
-    const res = await fetch(`${getApiUrl()}/api/${collection}/${id}`, { headers: getHeaders() });
+    const res = await fetch(`${getApiUrl()}/api/${collection}/${id}`, { headers: getHeaders(), cache: 'no-store' });
     if (!res.ok) {
         console.error('Strapi API Error (findOne):', res.statusText);
         throw new Error(`Strapi Error: ${res.statusText}`);

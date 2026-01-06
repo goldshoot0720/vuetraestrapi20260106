@@ -17,7 +17,14 @@
         <div class="main-info">
           <div class="name">{{ item.name || '未命名' }}</div>
           <div class="site-link" v-if="item.site">
-            <a :href="item.site" target="_blank" rel="noopener">🌐 前往網站</a>
+            <img 
+              :src="getFavicon(item.site)" 
+              alt="" 
+              class="site-favicon" 
+              @error="$event.target.style.display='none'"
+              v-if="getFavicon(item.site)"
+            />
+            <a :href="item.site" target="_blank" rel="noopener">前往網站</a>
           </div>
         </div>
         <div class="meta">
@@ -89,6 +96,23 @@ const formData = reactive({
   note: ''
 });
 
+const getFavicon = (url) => {
+  if (!url) return '';
+  try {
+    // Check if url starts with http/https, if not, assume it might be invalid for URL constructor but try anyway or handle
+    // If user inputs just "google.com", URL constructor might fail.
+    // Strapi usually validates URL but let's be safe.
+    let fullUrl = url;
+    if (!url.startsWith('http')) {
+        fullUrl = `https://${url}`;
+    }
+    const domain = new URL(fullUrl).hostname;
+    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+  } catch (e) {
+    return '';
+  }
+};
+
 const openModal = (item = null) => {
   editingItem.value = item;
   if (item) {
@@ -129,7 +153,9 @@ const saveSubscription = async () => {
     };
 
     if (editingItem.value) {
-      await strapi.update('subscriptions', editingItem.value.id, data);
+      // Use documentId if available (Strapi v5), fallback to id (Strapi v4)
+      const idToUse = editingItem.value.documentId || editingItem.value.id;
+      await strapi.update('subscriptions', idToUse, data);
     } else {
       await strapi.create('subscriptions', data);
     }
@@ -147,7 +173,9 @@ const deleteSubscription = async (item) => {
   
   try {
     console.log('Deleting subscription:', item.id);
-    await strapi.delete('subscriptions', item.id);
+    const idToUse = item.documentId || item.id;
+    await strapi.delete('subscriptions', idToUse);
+    alert('刪除成功！');
     await fetchData(); // Refresh list
   } catch (error) {
     console.error('Error deleting subscription:', error);
@@ -196,14 +224,22 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-}
 .actions .btn {
   background: rgba(255,255,255,0.2);
   border: none;
   color: #fff;
   padding: 8px 12px;
   border-radius: 8px;
-  margin-left: 0;
+  cursor: pointer;
+}
+.site-favicon {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+.actions .primary {margin-left: 0;
 }
 .actions .primary {
   background: #ff5a5f;
