@@ -260,8 +260,8 @@ const handleFileUpload = async (event) => {
             amount: Number(cols[2]) || 0,
             price: Number(cols[3]) || 0,
             shop: cols[4]?.replace(/^"|"$/g, '') || null,
-            todate: cols[5] ? new Date(cols[5]) : null,
-            photo: cols[6]?.replace(/^"|"$/g, '') || null
+            todate: cols[5] ? new Date(cols[5]) : null
+            // photo: CSV 中的圖片連結無法直接匯入到 Media 欄位，故忽略
           };
 
           await strapi.create('foods', data);
