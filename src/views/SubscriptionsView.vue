@@ -224,6 +224,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
 .actions .btn {
   background: rgba(255,255,255,0.2);
   border: none;
