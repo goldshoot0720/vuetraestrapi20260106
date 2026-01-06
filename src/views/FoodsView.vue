@@ -4,8 +4,9 @@
       <div class="badge">🍎</div>
       <h2>食品管理系統</h2>
       <div class="actions">
+        <span v-if="isImporting" class="status-text">{{ importProgress }}</span>
         <input type="file" ref="fileInput" accept=".csv" style="display: none" @change="handleFileUpload" />
-        <button class="btn" @click="triggerFileInput">匯入 CSV</button>
+        <button class="btn" @click="triggerFileInput" :disabled="isImporting">匯入 CSV</button>
         <button class="btn" @click="downloadCSV">匯出 CSV</button>
         <button class="btn" @click="fetchData">重新載入</button>
         <button class="btn primary" @click="openModal(null)">新增食品</button>
@@ -233,9 +234,34 @@ const parseCSVLine = (text) => {
   return result;
 };
 
+const uploadImageFromUrl = async (url) => {
+  if (!url) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch image: ${res.statusText}`);
+    const blob = await res.blob();
+    // Create a File object from the blob
+    const fileName = url.split('/').pop() || 'image.jpg';
+    const file = new File([blob], fileName, { type: blob.type });
+    
+    // Upload to Strapi
+    const uploaded = await strapi.upload(file);
+    return uploaded.id;
+  } catch (error) {
+    console.warn(`Image upload failed for ${url}:`, error);
+    return null;
+  }
+};
+
+const isImporting = ref(false);
+const importProgress = ref('');
+
 const handleFileUpload = async (event) => {
   const file = event.target.files[0];
   if (!file) return;
+  
+  isImporting.value = true;
+  importProgress.value = '讀取檔案中...';
 
   const reader = new FileReader();
   reader.onload = async (e) => {
@@ -249,19 +275,32 @@ const handleFileUpload = async (event) => {
       let successCount = 0;
       let failCount = 0;
 
-      for (const line of dataRows) {
+      for (let i = 0; i < dataRows.length; i++) {
+        importProgress.value = `正在匯入第 ${i + 1} / ${dataRows.length} 筆... (成功: ${successCount}, 失敗: ${failCount})`;
+        const line = dataRows[i];
         try {
           // Format: ID, Name, Amount, Price, Shop, ToDate, Photo
           const cols = parseCSVLine(line);
           if (cols.length < 2) continue;
+
+          // Process photo URL if present
+          let photoId = null;
+          // Extract and clean the URL (remove quotes and backticks if any)
+          let rawUrl = cols[6]?.replace(/^"|"$/g, '').trim();
+          // Remove potential backticks from user report
+          if (rawUrl) rawUrl = rawUrl.replace(/`/g, '').trim();
+
+          if (rawUrl && rawUrl.startsWith('http')) {
+             photoId = await uploadImageFromUrl(rawUrl);
+          }
 
           const data = {
             name: cols[1]?.replace(/^"|"$/g, '') || '未命名',
             amount: Number(cols[2]) || 0,
             price: Number(cols[3]) || 0,
             shop: cols[4]?.replace(/^"|"$/g, '') || null,
-            todate: cols[5] ? new Date(cols[5]) : null
-            // photo: CSV 中的圖片連結無法直接匯入到 Media 欄位，故忽略
+            todate: cols[5] ? new Date(cols[5]) : null,
+            photo: photoId // Link the uploaded image ID
           };
 
           await strapi.create('foods', data);
@@ -277,8 +316,11 @@ const handleFileUpload = async (event) => {
     } catch (error) {
       console.error('Error parsing CSV:', error);
       alert('CSV 解析失敗：' + error.message);
+    } finally {
+      isImporting.value = false;
+      importProgress.value = '';
+      event.target.value = '';
     }
-    event.target.value = '';
   };
   reader.readAsText(file);
 };
